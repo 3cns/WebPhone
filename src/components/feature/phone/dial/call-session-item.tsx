@@ -9,26 +9,63 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { PlayIcon } from "@heroicons/react/24/solid";
-import { Session, SessionState } from "sip.js";
+import { Session, SessionState, URI } from "sip.js";
 import { SessionDirection } from "@/types/sip-type";
 import { PhoneStateType, usePhoneState } from "@/hooks/use-phonestate-context";
-import { useEffect } from "react";
+import { formatDuration } from "@/utils/format-duration";
+import { useEffect, useRef, useState } from "react";
 
 export const CallSessionItem = ({ sessionId }: { sessionId: string }) => {
   const sessionCall = useSessionCall(sessionId);
   const { phoneState, setPhoneState } = usePhoneState();
-  const {
-    answer,
-    mute,
-    unmute,
-    hold,
-    unhold,
-    hangup,
-    session,
-    isHeld,
-    isMuted,
-    direction,
-  } = sessionCall || {};
+  const { session, hangup, direction } = sessionCall || {};
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    audioRef.current = new Audio();
+
+    if (direction === SessionDirection.OUTGOING) {
+      audioRef.current.src = "/sounds/callwaiting.mp3";
+    } else if (direction === SessionDirection.INCOMING) {
+      audioRef.current.src = "/sounds/ringtone.mp3";
+    }
+
+    if (audioRef.current) {
+      audioRef.current.loop = true;
+    }
+
+    if (
+      (direction === SessionDirection.OUTGOING &&
+        (session?.state === SessionState.Establishing ||
+          session?.state === SessionState.Initial)) ||
+      (direction === SessionDirection.INCOMING &&
+        (session?.state === SessionState.Initial ||
+          session?.state === SessionState.Establishing))
+    ) {
+      audioRef.current?.play().catch(console.error);
+    }
+
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+    };
+  }, [direction, session?.state]);
+
+  useEffect(() => {
+    if (
+      session?.state === SessionState.Established ||
+      session?.state === SessionState.Terminated ||
+      session?.state === SessionState.Terminating
+    ) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+    }
+  }, [session?.state]);
 
   useEffect(() => {
     if (
@@ -46,207 +83,18 @@ export const CallSessionItem = ({ sessionId }: { sessionId: string }) => {
       {direction === SessionDirection.OUTGOING &&
         (session?.state === SessionState.Establishing ||
           session?.state === SessionState.Initial) && (
-          <div className="flex flex-col items-center justify-center gap-8 py-16">
-            <div className="relative">
-              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg">
-                <PhoneIcon className="w-12 h-12 text-white" />
-              </div>
-              <div className="absolute inset-0 w-24 h-24 rounded-full bg-indigo-400 animate-ping opacity-75"></div>
-            </div>
-            <div className="text-center space-y-3">
-              <h2 className="text-2xl font-bold text-gray-800">
-                Connecting Call
-              </h2>
-              <p className="text-lg text-gray-600 font-medium">
-                {session?.remoteIdentity?.uri?.user || "Unknown Number"}
-              </p>
-              <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
-                <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce"></div>
-                <div
-                  className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce"
-                  style={{ animationDelay: "0.1s" }}
-                ></div>
-                <div
-                  className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce"
-                  style={{ animationDelay: "0.2s" }}
-                ></div>
-                <span className="ml-2">Establishing connection</span>
-              </div>
-            </div>
-            <button
-              onClick={async () => {
-                try {
-                  await hangup?.();
-                } catch (error) {
-                  console.error("Failed to cancel call:", error);
-                }
-              }}
-              className="flex items-center space-x-2 px-8 py-3 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
-            >
-              <XMarkIcon className="w-5 h-5" />
-              <span>Cancel Call</span>
-            </button>
-          </div>
+          <OutGoingCallItem session={session} />
         )}
 
       {direction === SessionDirection.INCOMING &&
         (session?.state === SessionState.Initial ||
           session?.state === SessionState.Establishing) && (
-          <div className="flex flex-col items-center justify-center gap-8 py-16">
-            <div className="relative">
-              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-lg animate-pulse">
-                <PhoneIcon className="w-12 h-12 text-white animate-bounce" />
-              </div>
-              <div className="absolute inset-0 w-24 h-24 rounded-full bg-emerald-400 animate-ping opacity-75"></div>
-            </div>
-            <div className="text-center space-y-3">
-              <h2 className="text-2xl font-bold text-gray-800">
-                Incoming Call
-              </h2>
-              <p className="text-lg text-gray-600 font-medium">
-                {session?.remoteIdentity?.uri?.user || "Unknown Number"}
-              </p>
-            </div>
-            <div className="flex gap-6">
-              <button
-                onClick={async () => {
-                  try {
-                    await answer?.();
-                  } catch (error) {
-                    console.error("Failed to answer call:", error);
-                  }
-                }}
-                className="flex items-center space-x-2 px-8 py-4 bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-xl hover:from-indigo-600 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
-              >
-                <CheckIcon className="w-6 h-6" />
-                <span className="font-medium">Accept</span>
-              </button>
-              <button
-                onClick={async () => {
-                  try {
-                    await hangup?.();
-                  } catch (error) {
-                    console.error("Failed to decline call:", error);
-                  }
-                }}
-                className="flex items-center space-x-2 px-8 py-4 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
-              >
-                <XMarkIcon className="w-6 h-6" />
-                <span className="font-medium">Decline</span>
-              </button>
-            </div>
-          </div>
+          <IncomingCallItem session={session} />
         )}
 
+      {/* Established call */}
       {session?.state === SessionState.Established && (
-        <div className="flex flex-col items-center justify-center gap-8 py-16">
-          <div className="w-24 h-24 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg">
-            <PhoneIcon className="w-12 h-12 text-white" />
-          </div>
-
-          <div className="text-center space-y-3">
-            <h2 className="text-2xl font-bold text-gray-800">
-              {isHeld ? "Call on Hold" : "Call in Progress"}
-            </h2>
-            <p className="text-lg text-gray-600 font-medium">
-              {session?.remoteIdentity?.uri?.user || "Unknown Number"}
-            </p>
-            <div className="flex items-center justify-center space-x-2 text-sm text-gray-500 bg-gray-50 p-2 rounded-lg">
-              <div
-                className={`w-2 h-2 rounded-full ${
-                  isHeld ? "bg-amber-500" : "bg-emerald-500"
-                }`}
-              ></div>
-            </div>
-
-            <div className="flex flex-col space-y-2">
-              {isHeld && (
-                <div className="flex items-center justify-center space-x-2 text-sm text-amber-700 bg-amber-50 p-2 rounded-lg">
-                  <PauseIcon className="w-4 h-4" />
-                  <span>Call is on hold</span>
-                </div>
-              )}
-              {isMuted && (
-                <div className="flex items-center justify-center space-x-2 text-sm text-red-700 bg-red-50 p-2 rounded-lg">
-                  <MicrophoneSlashIcon className="w-4 h-4" />
-                  <span>Microphone muted</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 w-full max-w-sm">
-            <button
-              onClick={async () => {
-                try {
-                  if (isMuted) {
-                    await unmute?.();
-                  } else {
-                    await mute?.();
-                  }
-                } catch (error) {
-                  console.error("Failed to toggle mute:", error);
-                }
-              }}
-              className={`flex flex-col items-center space-y-2 p-4 rounded-xl text-white transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 ${
-                isMuted
-                  ? "bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700"
-                  : "bg-gradient-to-br from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700"
-              }`}
-            >
-              {isMuted ? (
-                <MicrophoneSlashIcon className="w-6 h-6" />
-              ) : (
-                <MicrophoneIcon className="w-6 h-6" />
-              )}
-              <span className="text-sm font-medium">
-                {isMuted ? "Unmute" : "Mute"}
-              </span>
-            </button>
-
-            <button
-              onClick={async () => {
-                try {
-                  if (isHeld) {
-                    await unhold?.();
-                  } else {
-                    await hold?.();
-                  }
-                } catch (error) {
-                  console.error("Failed to toggle hold:", error);
-                }
-              }}
-              className={`flex flex-col items-center space-y-2 p-4 rounded-xl text-white transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 ${
-                isHeld
-                  ? "bg-gradient-to-br from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700"
-                  : "bg-gradient-to-br from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700"
-              }`}
-            >
-              {isHeld ? (
-                <PlayIcon className="w-6 h-6" />
-              ) : (
-                <PauseIcon className="w-6 h-6" />
-              )}
-              <span className="text-sm font-medium">
-                {isHeld ? "Resume" : "Hold"}
-              </span>
-            </button>
-          </div>
-
-          <button
-            onClick={async () => {
-              try {
-                await hangup?.();
-              } catch (error) {
-                console.error("Failed to end call:", error);
-              }
-            }}
-            className="flex items-center space-x-3 px-8 py-4 bg-gradient-to-br from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
-          >
-            <XMarkIcon className="w-6 h-6" />
-            <span className="font-medium">End Call</span>
-          </button>
-        </div>
+        <EstablishedCallItem session={session} />
       )}
 
       {session?.state &&
@@ -259,6 +107,258 @@ export const CallSessionItem = ({ sessionId }: { sessionId: string }) => {
           />
         )}
     </>
+  );
+};
+
+const OutGoingCallItem = ({ session }: { session: Session }) => {
+  const sessionCall = useSessionCall(session?.id);
+  const { hangup } = sessionCall || {};
+
+  return (
+    <div className="flex flex-col items-center justify-center gap-8 py-16">
+      <div className="relative">
+        <div className="w-24 h-24 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg">
+          <PhoneIcon className="w-12 h-12 text-white" />
+        </div>
+        <div className="absolute inset-0 w-24 h-24 rounded-full bg-indigo-400 animate-ping opacity-75"></div>
+      </div>
+      <div className="text-center space-y-3">
+        <h2 className="text-2xl font-bold text-gray-800">Connecting Call</h2>
+        <p className="text-lg text-gray-600 font-medium">
+          {session?.remoteIdentity?.uri?.user || "Unknown Number"}
+        </p>
+        <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
+          <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce"></div>
+          <div
+            className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce"
+            style={{ animationDelay: "0.1s" }}
+          ></div>
+          <div
+            className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce"
+            style={{ animationDelay: "0.2s" }}
+          ></div>
+          <span className="ml-2">Establishing connection</span>
+        </div>
+      </div>
+      <button
+        onClick={async () => {
+          try {
+            console.log("Canceling call...");
+            await hangup?.();
+            console.log("Call cancellation completed");
+          } catch (error) {
+            console.error("Failed to cancel call:", error);
+          }
+        }}
+        className="flex items-center space-x-2 px-8 py-3 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
+      >
+        <XMarkIcon className="w-5 h-5" />
+        <span>Cancel Call</span>
+      </button>
+    </div>
+  );
+};
+
+const IncomingCallItem = ({ session }: { session: Session }) => {
+  const sessionCall = useSessionCall(session?.id);
+  const { answer, hangup } = sessionCall || {};
+  return (
+    <div className="flex flex-col items-center justify-center gap-8 py-16">
+      <div className="relative">
+        <div className="w-24 h-24 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-lg animate-pulse">
+          <PhoneIcon className="w-12 h-12 text-white animate-bounce" />
+        </div>
+        <div className="absolute inset-0 w-24 h-24 rounded-full bg-emerald-400 animate-ping opacity-75"></div>
+      </div>
+      <div className="text-center space-y-3">
+        <h2 className="text-2xl font-bold text-gray-800">Incoming Call</h2>
+        <p className="text-lg text-gray-600 font-medium">
+          {session?.remoteIdentity?.uri?.user || "Unknown Number"}
+        </p>
+      </div>
+      <div className="flex gap-6">
+        <button
+          onClick={async () => {
+            try {
+              console.log("Accepting incoming call...");
+              await answer?.();
+            } catch (error) {
+              console.error("Failed to answer call:", error);
+            }
+          }}
+          className="flex items-center space-x-2 px-8 py-4 bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-xl hover:from-indigo-600 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
+        >
+          <CheckIcon className="w-6 h-6" />
+          <span className="font-medium">Accept</span>
+        </button>
+        <button
+          onClick={async () => {
+            try {
+              console.log("Declining incoming call...");
+              await hangup?.();
+            } catch (error) {
+              console.error("Failed to decline call:", error);
+            }
+          }}
+          className="flex items-center space-x-2 px-8 py-4 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
+        >
+          <XMarkIcon className="w-6 h-6" />
+          <span className="font-medium">Decline</span>
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const EstablishedCallItem = ({ session }: { session: Session }) => {
+  const sessionCall = useSessionCall(session?.id);
+  const { isHeld, isMuted, hangup, unmute, mute, unhold, hold } =
+    sessionCall || {};
+  const [newNumber, setNewNumber] = useState("");
+
+  return (
+    <div className="flex flex-col items-center justify-center gap-8 py-16">
+      <div className="w-24 h-24 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg">
+        <PhoneIcon className="w-12 h-12 text-white" />
+      </div>
+
+      <div className="text-center space-y-3">
+        <h2 className="text-2xl font-bold text-gray-800">
+          {isHeld ? "Call on Hold" : "Call in Progress"}
+        </h2>
+        <p className="text-lg text-gray-600 font-medium">
+          {session?.remoteIdentity?.uri?.user || "Unknown Number"}
+        </p>
+        <div className="flex items-center justify-center space-x-2 text-sm text-gray-500 bg-gray-50 p-2 rounded-lg">
+          <div
+            className={`w-2 h-2 rounded-full ${
+              isHeld ? "bg-amber-500" : "bg-emerald-500"
+            }`}
+          ></div>
+          <span className="font-medium">
+            {/* {formatDuration(session?.callDuration || 0) || "00:00"} */}
+          </span>
+        </div>
+
+        {/* Status Indicators */}
+        <div className="flex flex-col space-y-2">
+          {isHeld && (
+            <div className="flex items-center justify-center space-x-2 text-sm text-amber-700 bg-amber-50 p-2 rounded-lg">
+              <PauseIcon className="w-4 h-4" />
+              <span>Call is on hold</span>
+            </div>
+          )}
+          {isMuted && (
+            <div className="flex items-center justify-center space-x-2 text-sm text-red-700 bg-red-50 p-2 rounded-lg">
+              <MicrophoneSlashIcon className="w-4 h-4" />
+              <span>Microphone muted</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Call Control Buttons */}
+      <div className="grid grid-cols-2 gap-4 w-full max-w-sm">
+        <button
+          onClick={async () => {
+            try {
+              if (isMuted) {
+                await unmute?.();
+              } else {
+                await mute?.();
+              }
+            } catch (error) {
+              console.error("Failed to toggle mute:", error);
+            }
+          }}
+          className={`flex flex-col items-center space-y-2 p-4 rounded-xl text-white transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 ${
+            isMuted
+              ? "bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700"
+              : "bg-gradient-to-br from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700"
+          }`}
+        >
+          {isMuted ? (
+            <MicrophoneSlashIcon className="w-6 h-6" />
+          ) : (
+            <MicrophoneIcon className="w-6 h-6" />
+          )}
+          <span className="text-sm font-medium">
+            {isMuted ? "Unmute" : "Mute"}
+          </span>
+        </button>
+
+        {/* Hold/Resume Button */}
+        <button
+          onClick={async () => {
+            try {
+              if (isHeld) {
+                await unhold?.();
+              } else {
+                await hold?.();
+              }
+            } catch (error) {
+              console.error("Failed to toggle hold:", error);
+            }
+          }}
+          className={`flex flex-col items-center space-y-2 p-4 rounded-xl text-white transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 ${
+            isHeld
+              ? "bg-gradient-to-br from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700"
+              : "bg-gradient-to-br from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700"
+          }`}
+        >
+          {isHeld ? (
+            <PlayIcon className="w-6 h-6" />
+          ) : (
+            <PauseIcon className="w-6 h-6" />
+          )}
+          <span className="text-sm font-medium">
+            {isHeld ? "Resume" : "Hold"}
+          </span>
+        </button>
+      </div>
+
+      {/* End Call Button */}
+      <button
+        onClick={async () => {
+          try {
+            await hangup?.();
+          } catch (error) {
+            console.error("Failed to end call:", error);
+          }
+        }}
+        className="flex items-center space-x-3 px-8 py-4 bg-gradient-to-br from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
+      >
+        <XMarkIcon className="w-6 h-6" />
+        <span className="font-medium">End Call</span>
+      </button>
+
+      {/* Keypad */}
+      <div className="grid grid-cols-3 gap-4 w-full max-w-sm">
+        {["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"].map(
+          (digit) => (
+            <button
+              key={digit}
+              onClick={() => {
+                setNewNumber((prev) => prev + digit);
+              }}
+              className="flex items-center justify-center p-4 bg-gray-100 rounded-xl hover:bg-gray-200 transition-all duration-200"
+            >
+              <span className="text-xl font-medium">{digit}</span>
+            </button>
+          )
+        )}
+        <button
+          onClick={() => {
+            const uri = new URI("sip", newNumber, "devone.telemojo.net");
+            session.refer(uri);
+          }}
+          className="col-span-3 flex items-center justify-center p-4 bg-gradient-to-br from-emerald-500 to-emerald-600 text-white rounded-xl hover:from-emerald-600 hover:to-emerald-700 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
+        >
+          <PhoneIcon className="w-6 h-6 mr-2" />
+          <span className="text-xl font-medium">Call</span>
+        </button>
+      </div>
+    </div>
   );
 };
 

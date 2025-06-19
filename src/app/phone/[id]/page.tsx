@@ -68,7 +68,9 @@ const Page = () => {
       if (data.success) {
         setMessages(data.data);
         data.data.forEach(async (message: any) => {
-          await readMessage(message._id);
+          if (message.status === "unread") {
+            await readMessage(message._id);
+          }
         });
       }
 
